@@ -12,6 +12,12 @@ const db = new Sequelize({
 	dialect: "sqlite",
 	storage: "./database.sqlite",
 	logging: false,
+	// retry: {
+	// 	match: [/SQLITE_BUSY/],
+	// 	name: "query",
+	// 	max: 5,
+	// },
+	// transactionType: "IMMEDIATE",
 });
 
 const app = express();
@@ -72,6 +78,10 @@ Dog.belongsTo(User);
 // DUMMY DATA (adds some users to the DB)
 // ***************************************************************
 
+async function initTransaction() {}
+
+initTransaction();
+
 let present = null;
 
 async function checkForPresentData() {
@@ -119,31 +129,6 @@ async function addFakeData() {
 		}
 		await addUsers();
 
-		// ********************************************
-		// DOGS
-		// ********************************************
-
-		// async function addDogs() {
-		// 	const dognames = ["Kimba", "Paula", "Rex", "Fiffi", "Bommel", "Bish"];
-		// 	function newDog(name) {
-		// 		const newDog = Dog.build({
-		// 			name: name,
-		// 		});
-		// 		newDog
-		// 			.save()
-		// 			.then((dog) => {
-		// 				// console.log(user);
-		// 				return dog;
-		// 			})
-		// 			.catch((err) => {
-		// 				console.log("Registering Dog Failed: ", err);
-		// 			});
-		// 	}
-		// 	dognames.forEach((name) => {
-		// 		newDog(name);
-		// 	});
-		// }
-
 		async function addDogs() {
 			const user = await User.findOne({ where: { id: 1 } });
 
@@ -154,45 +139,43 @@ async function addFakeData() {
 			await user.addDog(newDog);
 			// await newDog.setUser(user);
 
-			const ownedDogs = await user.getDogs();
-			const dogsOwner = await newDog.getUser();
+			const foundDogInDB = await Dog.findOne({ where: { id: 1 } });
+			const dogsOwner = await foundDogInDB.getUser();
 
-			console.log("owned doggos__________________________________", ownedDogs);
 			console.log("doggos owner________________", dogsOwner);
+
+			// console.log("FOUND DOG_________________", foundDogInDB.user);
+
+			const ownedDogs = await user.getDogs();
+
+			// console.log("owned doggos________________", ownedDogs);
 		}
 
 		await addDogs();
 
-		async function addAppointments() {
-			const user = await User.findOne({ where: { id: 1 } });
-			const caretaker = await User.findOne({ where: { id: 3 } });
-
-			// const usersDogs = await user.getDogs();
-
-			const dog1 = await Dog.findOne({ where: { id: 1 } });
-			const dog2 = await Dog.findOne({ where: { id: 2 } });
+		async function addAppointment() {
 			const newAppointment = Appointment.build({
-				start: "1020",
-				end: "2040",
+				start: "some date",
+				end: "another date",
 			});
-			console.log("appointment ID:_-_________________________-", newAppointment.id);
-			// await newAppointment.addCaretaker(caretaker, { save: false });
-			try {
-				await newAppointment.setUser(user, { save: false });
-			} catch (e) {
-				console.log(e);
-			}
+
+			const t = await db.transaction();
 
 			try {
-				await dog1.addAppointment(newAppointment);
-				// await newAppointment.addDog(dog1, { save: false });
-			} catch (e) {
-				console.log(e);
+				await newAppointment.save({ transaction: t });
+				const appointmentCreator = await User.findOne({ where: { id: 1 }, include: { model: Dog }, transaction: t });
+				const caretaker = await User.findOne({ where: { id: 3 }, transaction: t });
+				await newAppointment.setUser(appointmentCreator, { transaction: t });
+				await newAppointment.addDogs(appointmentCreator.dogs, { transaction: t });
+				await newAppointment.addCaretaker(caretaker, { transaction: t });
+				await t.commit();
+				console.log("Transaction successful");
+			} catch (err) {
+				console.log("Transaction failed", err);
+				await t.rollback();
 			}
-			await newAppointment.save();
-			await user.addAppointment(newAppointment, { save: false });
 		}
-		await addAppointments();
+		await addAppointment();
 
 		async function addDogsToAppointments() {}
 
@@ -269,7 +252,7 @@ async function findAcceptedContacts() {
 		}
 	});
 
-	console.log("ACTUAL CONTACTS:__________________", actualContacts);
+	// console.log("ACTUAL CONTACTS:__________________", actualContacts);
 	return actualContacts;
 }
 
@@ -288,6 +271,6 @@ syncDB();
 // ***************************************************************
 // LISTEN ON PORT 5001
 // ***************************************************************
-app.listen(5001, () => {
-	console.log("App running on port 5001");
+app.listen(5003, () => {
+	console.log("App running on port 5003");
 });
